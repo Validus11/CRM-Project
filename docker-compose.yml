@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: ./backend
+    container_name: crm-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    volumes:
+      - crm-instance:/app/instance
+    ports:
+      - "5000:5000"
+
+volumes:
+  crm-instance:

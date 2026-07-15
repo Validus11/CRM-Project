@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10253f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Offline-first CRM dashboard">
+  <title>CRM1</title>
+  <link rel="manifest" href="{{ url_for('frontend.manifest') }}">
+  <link rel="icon" href="{{ url_for('static', filename='icons/icon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body data-api-base="/api">
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">CRM</div>
+      <div>
+        <div class="brand-title">CRM1</div>
+        <div class="brand-subtitle">Offline-first customer workspace</div>
+      </div>
+    </div>
+    <div class="status-row">
+      <span class="status-pill" id="connection-status"><span class="dot"></span>Online</span>
+      <span class="status-pill" id="sync-status"><span class="dot"></span>Idle</span>
+      <span class="status-pill subtle" id="pending-count">0 pending</span>
+    </div>
+    <div class="header-actions">
+      <button class="ghost-button" id="sync-now-button" type="button">Sync now</button>
+      <button class="ghost-button" id="logout-button" type="button">Logout</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="auth-panel panel" id="auth-panel">
+      <div class="hero-copy">
+        <p class="eyebrow">Self-hosted CRM</p>
+        <h1>Work offline. Sync later. Keep ownership.</h1>
+        <p>
+          Login to manage contacts, interactions, tags, and scheduled reminders.
+          The browser keeps a local cache and sync queue so the app stays usable when the server drops.
+        </p>
+      </div>
+
+      <div class="auth-grid">
+        <form class="auth-card" id="login-form">
+          <h2>Login</h2>
+          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+          <label class="inline-check"><input name="remember" type="checkbox"> Remember me</label>
+          <button type="submit">Sign in</button>
+          <p class="form-note" id="login-message"></p>
+        </form>
+
+        <form class="auth-card accent" id="register-form">
+          <h2>Create account</h2>
+          <label>Name<input name="name" type="text" autocomplete="name" required></label>
+          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+          <label>Password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+          <button type="submit">Register</button>
+          <p class="form-note" id="register-message"></p>
+        </form>
+      </div>
+    </section>
+
+    <section class="workspace hidden" id="workspace">
+      <aside class="panel sidebar" id="contacts-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Contacts</p>
+            <h2>People</h2>
+          </div>
+          <button class="ghost-button small" id="new-contact-button" type="button">New</button>
+        </div>
+
+        <label class="search-field">
+          <span>Search</span>
+          <input id="contact-search" type="search" placeholder="Search contacts">
+        </label>
+
+        <div class="filter-box">
+          <div class="filter-title">Tag filter</div>
+          <div class="chip-row" id="tag-filter-row"></div>
+        </div>
+
+        <div class="contact-list" id="contact-list"></div>
+      </aside>
+
+      <section class="panel details" id="editor-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Record editor</p>
+            <h2 id="contact-title">Select a contact</h2>
+          </div>
+          <div class="header-actions compact">
+            <button class="ghost-button small" id="delete-contact-button" type="button">Delete</button>
+            <button class="primary-button small" id="save-contact-button" type="button">Save</button>
+          </div>
+        </div>
+
+        <form class="detail-form" id="contact-form">
+          <div class="grid-2">
+            <label>First name<input name="first_name" type="text" required></label>
+            <label>Last name<input name="last_name" type="text"></label>
+          </div>
+          <div class="grid-2">
+            <label>Company<input name="company" type="text"></label>
+            <label>Job title<input name="job_title" type="text"></label>
+          </div>
+          <div class="grid-2">
+            <label>Email<input name="email" type="email"></label>
+            <label>Phone<input name="phone" type="text"></label>
+          </div>
+          <label>Address<textarea name="address" rows="2"></textarea></label>
+          <label>Notes<textarea name="notes" rows="6" placeholder="Background, preferences, next steps..."></textarea></label>
+        </form>
+
+        <div class="split-grid">
+          <section class="subpanel">
+            <div class="subpanel-header">
+              <h3>Tags</h3>
+              <span class="muted" id="selected-contact-status">No contact selected</span>
+            </div>
+            <div class="chip-row wrap" id="selected-contact-tags"></div>
+          </section>
+
+          <section class="subpanel">
+            <div class="subpanel-header">
+              <h3>Interactions</h3>
+              <span class="muted">History and reminders</span>
+            </div>
+            <div class="timeline" id="interaction-list"></div>
+          </section>
+        </div>
+
+        <section class="subpanel">
+          <div class="subpanel-header">
+            <h3>New interaction</h3>
+            <span class="muted">Log a note or schedule a follow-up</span>
+          </div>
+          <form class="detail-form compact-form" id="interaction-form">
+            <div class="grid-2">
+              <label>Type
+                <select name="type">
+                  <option value="note">Note</option>
+                  <option value="call">Call</option>
+                  <option value="email">Email</option>
+                  <option value="meeting">Meeting</option>
+                  <option value="task">Task</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>Subject<input name="subject" type="text"></label>
+            </div>
+            <label>Body<textarea name="body" rows="4"></textarea></label>
+            <div class="grid-2">
+              <label>Occurred at<input name="occurred_at" type="datetime-local"></label>
+              <label>Scheduled at<input name="scheduled_at" type="datetime-local"></label>
+            </div>
+            <label class="inline-check"><input name="is_completed" type="checkbox"> Mark as completed</label>
+            <div class="header-actions compact end">
+              <button class="primary-button small" id="save-interaction-button" type="submit">Queue interaction</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <aside class="panel sidebar secondary" id="sync-panel">
+        <section class="subpanel" id="status-panel">
+          <div class="subpanel-header">
+            <h3>Sync</h3>
+          </div>
+          <div class="stacked-metrics">
+            <div><span>Last sync</span><strong id="last-sync-at">Never</strong></div>
+            <div><span>Conflicts</span><strong id="pending-conflicts">0</strong></div>
+            <div><span>Device</span><strong id="device-label">CRM1 browser</strong></div>
+          </div>
+        </section>
+
+        <section class="subpanel" id="conflicts-panel">
+          <div class="subpanel-header">
+            <h3>Conflicts</h3>
+          </div>
+          <div class="timeline narrow" id="conflict-list"></div>
+        </section>
+
+        <section class="subpanel" id="tags-panel">
+          <div class="subpanel-header">
+            <h3>Tags</h3>
+            <span class="muted">Manage labels</span>
+          </div>
+          <form class="inline-form" id="tag-form">
+            <input name="name" type="text" placeholder="New tag" required>
+            <input name="color" type="color" value="#6c757d" aria-label="Tag color">
+            <button type="submit">Add</button>
+          </form>
+          <div class="tag-list" id="tag-list"></div>
+        </section>
+
+        <section class="subpanel" id="upcoming-panel">
+          <div class="subpanel-header">
+            <h3>Upcoming</h3>
+            <span class="muted">Scheduled reminders</span>
+          </div>
+          <div class="timeline narrow" id="upcoming-list"></div>
+        </section>
+
+        <section class="subpanel" id="settings-panel">
+          <div class="subpanel-header">
+            <h3>Settings</h3>
+            <span class="muted">Browser-synced values</span>
+          </div>
+          <form class="detail-form compact-form" id="setting-form">
+            <div class="grid-2">
+              <label>Key<input name="key" type="text" placeholder="default_view"></label>
+              <label>Value<input name="value" type="text" placeholder="contacts"></label>
+            </div>
+            <button class="primary-button small" type="submit">Save setting</button>
+          </form>
+          <div class="settings-list" id="settings-list"></div>
+        </section>
+
+        <section class="subpanel" id="data-panel">
+          <div class="subpanel-header">
+            <h3>Data</h3>
+          </div>
+          <div class="stacked-links">
+            <a href="/api/data/export/json" target="_blank" rel="noreferrer">Export JSON</a>
+            <a href="/api/data/export/csv" target="_blank" rel="noreferrer">Export CSV</a>
+            <a href="/api/data/backup" target="_blank" rel="noreferrer">Create backup</a>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <template id="contact-item-template">
+    <button class="contact-item" type="button">
+      <div>
+        <strong class="contact-name"></strong>
+        <div class="contact-meta"></div>
+      </div>
+      <span class="mini-pill"></span>
+    </button>
+  </template>
+
+  <template id="timeline-template">
+    <article class="timeline-item">
+      <div class="timeline-top">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+    </article>
+  </template>
+
+  <nav class="mobile-dock" aria-label="Quick actions">
+    <button type="button" data-jump="#contacts-panel">Contacts</button>
+    <button type="button" data-jump="#editor-panel">Compose</button>
+    <button type="button" data-jump="#sync-panel">Sync</button>
+    <button type="button" data-jump="#tags-panel">Tags</button>
+    <button type="button" data-jump="#data-panel">Data</button>
+  </nav>
+
+  <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

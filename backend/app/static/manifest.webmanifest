@@ -1,0 +1,19 @@
+{
+  "name": "CRM1",
+  "short_name": "CRM1",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#eef2f7",
+  "theme_color": "#10253f",
+  "description": "Offline-first CRM dashboard",
+  "icons": [
+    {
+      "src": "/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

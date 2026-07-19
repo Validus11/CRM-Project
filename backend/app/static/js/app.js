@@ -55,6 +55,7 @@
     contactTemplate: document.getElementById("contact-item-template"),
     timelineTemplate: document.getElementById("timeline-template"),
     mobileDock: document.querySelector(".mobile-dock"),
+    backToContactsButton: document.getElementById("back-to-contacts-button"),
   };
 
   function formatDate(value) {
@@ -307,7 +308,18 @@
       const node = els.contactTemplate.content.firstElementChild.cloneNode(true);
       node.dataset.id = contact.id;
       node.classList.toggle("active", String(contact.id) === String(state.selectedContactId));
-      node.querySelector(".contact-name").textContent = fullName(contact);
+      const name = fullName(contact);
+      const initials = name
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("") || "?";
+      const avatar = node.querySelector(".contact-avatar");
+      if (avatar) {
+        avatar.textContent = initials;
+      }
+      node.querySelector(".contact-name").textContent = name;
       node.querySelector(".contact-meta").textContent = [contact.company, contact.email, contact.phone].filter(Boolean).join(" • ") || "No contact details yet";
       const status = node.querySelector(".mini-pill");
       status.textContent = String(contact.id).startsWith("local-") ? "Pending" : `v${contact.version || 1}`;
@@ -522,12 +534,23 @@
     if (els.mobileDock) {
       els.mobileDock.classList.toggle("hidden", !visible);
     }
+    if (visible) {
+      showScreen("contacts-panel");
+    }
   }
 
-  function scrollToTarget(selector) {
-    const target = document.querySelector(selector);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+  function showScreen(screenId) {
+    document.querySelectorAll(".screen").forEach(screen => {
+      screen.classList.toggle("screen-active", screen.id === screenId);
+    });
+    document.querySelectorAll(".mobile-dock button[data-screen]").forEach(button => {
+      button.classList.toggle("active", button.dataset.screen === screenId);
+    });
+    const scrollTarget = document.querySelector(`#${screenId}`) || document.querySelector("main.layout");
+    if (scrollTarget && window.matchMedia("(max-width: 899px)").matches) {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    } else if (scrollTarget) {
+      scrollTarget.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 
@@ -975,6 +998,7 @@
     const contact = selectedContact();
     populateContactForm(contact);
     renderAll();
+    showScreen("editor-panel");
   }
 
   async function createNewContact() {
@@ -983,7 +1007,7 @@
     els.contactForm.reset();
     populateContactForm(null);
     renderAll();
-    scrollToTarget("#editor-panel");
+    showScreen("editor-panel");
   }
 
   async function handleSessionLoss() {
@@ -1051,6 +1075,7 @@
       try {
         await queueDeleteContact(selectedContact());
         await syncAll();
+        showScreen("contacts-panel");
       } catch (error) {
         alert(error.message);
       }
@@ -1095,11 +1120,17 @@
 
     if (els.mobileDock) {
       els.mobileDock.addEventListener("click", event => {
-        const button = event.target.closest("button[data-jump]");
+        const button = event.target.closest("button[data-screen]");
         if (!button) {
           return;
         }
-        scrollToTarget(button.dataset.jump);
+        showScreen(button.dataset.screen);
+      });
+    }
+
+    if (els.backToContactsButton) {
+      els.backToContactsButton.addEventListener("click", () => {
+        showScreen("contacts-panel");
       });
     }
 

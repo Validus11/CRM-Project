@@ -38,7 +38,7 @@ pip install -r requirements.txt
 cp .env.example .env   # edit SECRET_KEY etc.
 export FLASK_ENV=development
 
-flask --app run init-db     # or: flask --app run db upgrade, once migrations exist
+flask --app run init-db     # optional; python run.py also initializes tables on first launch
 flask --app run run
 ```
 

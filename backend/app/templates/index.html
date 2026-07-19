@@ -2,14 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#10253f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="description" content="Offline-first CRM dashboard">
   <title>CRM1</title>
   <link rel="manifest" href="{{ url_for('frontend.manifest') }}">
   <link rel="icon" href="{{ url_for('static', filename='icons/icon.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body data-api-base="/api">
@@ -19,9 +21,9 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark">CRM</div>
-      <div>
+      <div class="brand-copy">
         <div class="brand-title">CRM1</div>
-        <div class="brand-subtitle">Offline-first customer workspace</div>
+        <div class="brand-subtitle">Offline-first</div>
       </div>
     </div>
     <div class="status-row">
@@ -30,8 +32,12 @@
       <span class="status-pill subtle" id="pending-count">0 pending</span>
     </div>
     <div class="header-actions">
-      <button class="ghost-button" id="sync-now-button" type="button">Sync now</button>
-      <button class="ghost-button" id="logout-button" type="button">Logout</button>
+      <button class="icon-button" id="sync-now-button" type="button" aria-label="Sync now" title="Sync now">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+      </button>
+      <button class="icon-button" id="logout-button" type="button" aria-label="Logout" title="Logout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+      </button>
     </div>
   </header>
 
@@ -42,14 +48,14 @@
         <h1>Work offline. Sync later. Keep ownership.</h1>
         <p>
           Login to manage contacts, interactions, tags, and scheduled reminders.
-          The browser keeps a local cache and sync queue so the app stays usable when the server drops.
+          Your browser keeps a local cache and sync queue so the app stays usable when the server drops.
         </p>
       </div>
 
       <div class="auth-grid">
         <form class="auth-card" id="login-form">
           <h2>Login</h2>
-          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+          <label>Email<input name="email" type="email" inputmode="email" autocomplete="email" required></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
           <label class="inline-check"><input name="remember" type="checkbox"> Remember me</label>
           <button type="submit">Sign in</button>
@@ -59,7 +65,7 @@
         <form class="auth-card accent" id="register-form">
           <h2>Create account</h2>
           <label>Name<input name="name" type="text" autocomplete="name" required></label>
-          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+          <label>Email<input name="email" type="email" inputmode="email" autocomplete="email" required></label>
           <label>Password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
           <button type="submit">Register</button>
           <p class="form-note" id="register-message"></p>
@@ -68,38 +74,47 @@
     </section>
 
     <section class="workspace hidden" id="workspace">
-      <aside class="panel sidebar" id="contacts-panel">
-        <div class="panel-header">
+
+      <!-- SCREEN 1: Contacts list -->
+      <section class="screen screen-active" id="contacts-panel" data-screen-title="Contacts">
+        <div class="screen-header">
           <div>
             <p class="eyebrow">Contacts</p>
             <h2>People</h2>
           </div>
-          <button class="ghost-button small" id="new-contact-button" type="button">New</button>
+          <button class="fab" id="new-contact-button" type="button" aria-label="New contact">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
         </div>
 
         <label class="search-field">
-          <span>Search</span>
-          <input id="contact-search" type="search" placeholder="Search contacts">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="contact-search" type="search" inputmode="search" placeholder="Search contacts">
         </label>
 
         <div class="filter-box">
-          <div class="filter-title">Tag filter</div>
-          <div class="chip-row" id="tag-filter-row"></div>
+          <div class="chip-row scroll-x" id="tag-filter-row"></div>
         </div>
 
         <div class="contact-list" id="contact-list"></div>
-      </aside>
+      </section>
 
-      <section class="panel details" id="editor-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Record editor</p>
-            <h2 id="contact-title">Select a contact</h2>
-          </div>
+      <!-- SCREEN 2: Contact detail / editor -->
+      <section class="screen" id="editor-panel" data-screen-title="Contact">
+        <div class="screen-header">
+          <button class="back-button" id="back-to-contacts-button" type="button" aria-label="Back to contacts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            <span>Contacts</span>
+          </button>
           <div class="header-actions compact">
-            <button class="ghost-button small" id="delete-contact-button" type="button">Delete</button>
+            <button class="ghost-button small danger" id="delete-contact-button" type="button">Delete</button>
             <button class="primary-button small" id="save-contact-button" type="button">Save</button>
           </div>
+        </div>
+
+        <div class="detail-title-row">
+          <h2 id="contact-title">Select a contact</h2>
+          <span class="muted" id="selected-contact-status">No contact selected</span>
         </div>
 
         <form class="detail-form" id="contact-form">
@@ -112,35 +127,31 @@
             <label>Job title<input name="job_title" type="text"></label>
           </div>
           <div class="grid-2">
-            <label>Email<input name="email" type="email"></label>
-            <label>Phone<input name="phone" type="text"></label>
+            <label>Email<input name="email" type="email" inputmode="email"></label>
+            <label>Phone<input name="phone" type="tel" inputmode="tel"></label>
           </div>
           <label>Address<textarea name="address" rows="2"></textarea></label>
-          <label>Notes<textarea name="notes" rows="6" placeholder="Background, preferences, next steps..."></textarea></label>
+          <label>Notes<textarea name="notes" rows="5" placeholder="Background, preferences, next steps..."></textarea></label>
         </form>
 
-        <div class="split-grid">
-          <section class="subpanel">
-            <div class="subpanel-header">
-              <h3>Tags</h3>
-              <span class="muted" id="selected-contact-status">No contact selected</span>
-            </div>
-            <div class="chip-row wrap" id="selected-contact-tags"></div>
-          </section>
+        <section class="subpanel">
+          <div class="subpanel-header">
+            <h3>Tags</h3>
+          </div>
+          <div class="chip-row wrap" id="selected-contact-tags"></div>
+        </section>
 
-          <section class="subpanel">
-            <div class="subpanel-header">
-              <h3>Interactions</h3>
-              <span class="muted">History and reminders</span>
-            </div>
-            <div class="timeline" id="interaction-list"></div>
-          </section>
-        </div>
+        <section class="subpanel">
+          <div class="subpanel-header">
+            <h3>Interactions</h3>
+            <span class="muted">History and reminders</span>
+          </div>
+          <div class="timeline" id="interaction-list"></div>
+        </section>
 
         <section class="subpanel">
           <div class="subpanel-header">
             <h3>New interaction</h3>
-            <span class="muted">Log a note or schedule a follow-up</span>
           </div>
           <form class="detail-form compact-form" id="interaction-form">
             <div class="grid-2">
@@ -156,20 +167,37 @@
               </label>
               <label>Subject<input name="subject" type="text"></label>
             </div>
-            <label>Body<textarea name="body" rows="4"></textarea></label>
+            <label>Body<textarea name="body" rows="3"></textarea></label>
             <div class="grid-2">
               <label>Occurred at<input name="occurred_at" type="datetime-local"></label>
               <label>Scheduled at<input name="scheduled_at" type="datetime-local"></label>
             </div>
             <label class="inline-check"><input name="is_completed" type="checkbox"> Mark as completed</label>
-            <div class="header-actions compact end">
-              <button class="primary-button small" id="save-interaction-button" type="submit">Queue interaction</button>
-            </div>
+            <button class="primary-button" id="save-interaction-button" type="submit">Queue interaction</button>
           </form>
         </section>
       </section>
 
-      <aside class="panel sidebar secondary" id="sync-panel">
+      <!-- SCREEN 3: Reminders -->
+      <section class="screen" id="reminders-panel" data-screen-title="Reminders">
+        <div class="screen-header">
+          <div>
+            <p class="eyebrow">Reminders</p>
+            <h2>Upcoming</h2>
+          </div>
+        </div>
+        <div class="timeline" id="upcoming-list"></div>
+      </section>
+
+      <!-- SCREEN 4: Sync, tags, settings, data -->
+      <section class="screen" id="sync-panel" data-screen-title="More">
+        <div class="screen-header">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2>More</h2>
+          </div>
+        </div>
+
         <section class="subpanel" id="status-panel">
           <div class="subpanel-header">
             <h3>Sync</h3>
@@ -201,14 +229,6 @@
           <div class="tag-list" id="tag-list"></div>
         </section>
 
-        <section class="subpanel" id="upcoming-panel">
-          <div class="subpanel-header">
-            <h3>Upcoming</h3>
-            <span class="muted">Scheduled reminders</span>
-          </div>
-          <div class="timeline narrow" id="upcoming-list"></div>
-        </section>
-
         <section class="subpanel" id="settings-panel">
           <div class="subpanel-header">
             <h3>Settings</h3>
@@ -234,16 +254,18 @@
             <a href="/api/data/backup" target="_blank" rel="noreferrer">Create backup</a>
           </div>
         </section>
-      </aside>
+      </section>
+
     </section>
   </main>
 
   <template id="contact-item-template">
     <button class="contact-item" type="button">
-      <div>
+      <span class="contact-avatar"></span>
+      <span class="contact-item-text">
         <strong class="contact-name"></strong>
-        <div class="contact-meta"></div>
-      </div>
+        <span class="contact-meta"></span>
+      </span>
       <span class="mini-pill"></span>
     </button>
   </template>
@@ -258,12 +280,23 @@
     </article>
   </template>
 
-  <nav class="mobile-dock" aria-label="Quick actions">
-    <button type="button" data-jump="#contacts-panel">Contacts</button>
-    <button type="button" data-jump="#editor-panel">Compose</button>
-    <button type="button" data-jump="#sync-panel">Sync</button>
-    <button type="button" data-jump="#tags-panel">Tags</button>
-    <button type="button" data-jump="#data-panel">Data</button>
+  <nav class="mobile-dock hidden" aria-label="Primary">
+    <button type="button" data-screen="contacts-panel" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Contacts</span>
+    </button>
+    <button type="button" data-screen="editor-panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+      <span>Contact</span>
+    </button>
+    <button type="button" data-screen="reminders-panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span>Reminders</span>
+    </button>
+    <button type="button" data-screen="sync-panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+      <span>More</span>
+    </button>
   </nav>
 
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>

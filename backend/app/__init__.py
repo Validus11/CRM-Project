@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from flask import Flask, jsonify
 
@@ -10,6 +11,12 @@ def create_app(env=None):
     env = env or os.environ.get("FLASK_ENV", "production")
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_by_name.get(env, config_by_name["production"]))
+
+    database_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if database_uri.startswith("sqlite:///") and database_uri != "sqlite:///:memory:":
+        sqlite_path = Path(database_uri.replace("sqlite:///", "", 1))
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        sqlite_path.touch(exist_ok=True)
 
     db.init_app(app)
     migrate.init_app(app, db)

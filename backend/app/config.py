@@ -22,6 +22,17 @@ class Config:
     # Where SQLite backups are written (Data Ownership: one-click backup/restore)
     BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(instance_dir, "backups"))
 
+    # Automatic scheduled backups (Data Ownership spec requirement)
+    AUTO_BACKUP_ENABLED = os.environ.get("AUTO_BACKUP_ENABLED", "true").lower() == "true"
+    BACKUP_INTERVAL_HOURS = int(os.environ.get("BACKUP_INTERVAL_HOURS", "24"))
+    BACKUP_RETENTION = int(os.environ.get("BACKUP_RETENTION", "14"))
+
+    # Set to the number of reverse-proxy hops in front of the app (Cloudflare
+    # Tunnel / Tailscale / nginx etc.) so Flask trusts X-Forwarded-Proto and
+    # generates https:// URLs + secure cookies correctly even though the
+    # tunnel talks to gunicorn over plain HTTP internally.
+    PROXY_HOP_COUNT = int(os.environ.get("PROXY_HOP_COUNT", "1"))
+
     # Session / cookie hardening for public deployment
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

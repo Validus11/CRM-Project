@@ -127,4 +127,59 @@ r = client.get("/api/audit")
 assert r.status_code == 200
 print("audit log entries:", j(r)["total"])
 
+# --- edit tag via sync (spec: "Edit tags" must be offline-queueable) ---
+r = client.post("/api/sync", json={"changes": [
+    {"op": "update", "entity_type": "tag", "entity_id": tag["id"],
+     "base_version": tag["version"], "payload": {"name": "VIP-Renamed", "color": "#00ff00"}},
+]})
+assert r.status_code == 200, r.data
+res = j(r)
+assert res["applied"] == 1, res
+assert res["results"][0]["server"]["name"] == "VIP-Renamed"
+print("sync edit tag OK")
+
+# --- edit interaction via sync (spec: "Edit interaction" must be offline-queueable) ---
+r = client.post("/api/sync", json={"changes": [
+    {"op": "update", "entity_type": "interaction", "entity_id": interaction["id"],
+     "base_version": interaction["version"], "payload": {"subject": "Follow-up call", "is_completed": True}},
+]})
+assert r.status_code == 200, r.data
+res = j(r)
+assert res["applied"] == 1, res
+assert res["results"][0]["server"]["subject"] == "Follow-up call"
+assert res["results"][0]["server"]["is_completed"] is True
+print("sync edit interaction OK")
+
+# --- offline-dependency resolution: interaction created for a contact that
+# hasn't synced yet, referenced only by contact_client_id (the reported bug) ---
+offline_contact_client_id = "offline-contact-1"
+r = client.post("/api/sync", json={"changes": [
+    {"op": "create", "entity_type": "contact", "client_id": offline_contact_client_id,
+     "payload": {"first_name": "Ada", "last_name": "Offline"}},
+]})
+assert r.status_code == 200, r.data
+offline_contact_id = j(r)["results"][0]["server"]["id"]
+
+r = client.post("/api/sync", json={"changes": [
+    {"op": "create", "entity_type": "interaction", "client_id": "offline-interaction-1",
+     "payload": {"contact_client_id": offline_contact_client_id, "type": "call", "subject": "First call"}},
+]})
+assert r.status_code == 200, r.data
+res = j(r)
+assert res["applied"] == 1, res
+assert res["results"][0]["server"]["contact_id"] == offline_contact_id, res
+print("offline contact -> offline interaction linkage OK")
+
+# --- offline tag creation + attach to an offline contact, resolved via *_client_id ---
+r = client.post("/api/sync", json={"changes": [
+    {"op": "create", "entity_type": "tag", "client_id": "offline-tag-1", "payload": {"name": "Lead", "color": "#123456"}},
+    {"op": "create", "entity_type": "contact_tag", "client_id": "offline-link-1",
+     "payload": {"contact_client_id": offline_contact_client_id, "tag_client_id": "offline-tag-1"}},
+]})
+assert r.status_code == 200, r.data
+res = j(r)
+assert res["applied"] == 2, res
+assert "Lead" in [t["name"] for t in res["results"][1]["server"]["tags"]], res
+print("offline tag creation + attach-to-offline-contact OK")
+
 print("\\nALL SMOKE TESTS PASSED")

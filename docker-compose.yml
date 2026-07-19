@@ -5,6 +5,12 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    environment:
+      # Pinned here (not in .env) so the container always uses its own
+      # filesystem layout regardless of what .env is set up for local dev.
+      FLASK_ENV: production
+      DATABASE_URL: sqlite:////app/instance/crm.db
+      BACKUP_DIR: /app/instance/backups
     volumes:
       - crm-instance:/app/instance
     ports:

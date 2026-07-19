@@ -3,6 +3,31 @@
   const deviceLabel = localStorage.getItem("crm-device-label") || `Browser ${Math.random().toString(36).slice(2, 7)}`;
   localStorage.setItem("crm-device-label", deviceLabel);
 
+  // crypto.randomUUID() only exists in secure contexts (HTTPS or localhost).
+  // On a phone hitting the app over plain HTTP via a LAN IP, it's simply
+  // not there. Fall back to crypto.getRandomValues (which IS available in
+  // insecure contexts), and to Math.random as a last resort so contact/tag/
+  // interaction creation never breaks regardless of how the app is served.
+  function uuid() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+      const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, char => {
+      const rand = (Math.random() * 16) | 0;
+      const value = char === "x" ? rand : (rand & 0x3) | 0x8;
+      return value.toString(16);
+    });
+  }
+
+  const STORE_BY_ENTITY = { contact: "contacts", interaction: "interactions", tag: "tags", setting: "settings" };
+
   const state = {
     user: null,
     contacts: [],
@@ -17,6 +42,8 @@
     lastPullAt: null,
     syncing: false,
     online: navigator.onLine,
+    editingInteractionId: null,
+    editingTagId: null,
   };
 
   const els = {
@@ -26,9 +53,8 @@
     registerForm: document.getElementById("register-form"),
     loginMessage: document.getElementById("login-message"),
     registerMessage: document.getElementById("register-message"),
-    connectionStatus: document.getElementById("connection-status"),
-    syncStatus: document.getElementById("sync-status"),
-    pendingCount: document.getElementById("pending-count"),
+    syncStatusValue: document.getElementById("sync-status-value"),
+    pendingCountValue: document.getElementById("pending-count-value"),
     contactSearch: document.getElementById("contact-search"),
     tagFilterRow: document.getElementById("tag-filter-row"),
     contactList: document.getElementById("contact-list"),
@@ -56,6 +82,20 @@
     timelineTemplate: document.getElementById("timeline-template"),
     mobileDock: document.querySelector(".mobile-dock"),
     backToContactsButton: document.getElementById("back-to-contacts-button"),
+    sheetOverlay: document.getElementById("sheet-overlay"),
+    sheetTitle: document.getElementById("sheet-title"),
+    addInteractionButton: document.getElementById("add-interaction-button"),
+    saveInteractionButton: document.getElementById("save-interaction-button"),
+    tagEditForm: document.getElementById("tag-edit-form"),
+    offlineBanner: document.getElementById("offline-banner"),
+    syncBadge: document.getElementById("sync-badge"),
+    emptyDetail: document.getElementById("empty-detail"),
+    detailBody: document.getElementById("detail-body"),
+    editorActions: document.getElementById("editor-actions"),
+    detailTitleRow: document.getElementById("detail-title-row"),
+    queueList: document.getElementById("queue-list"),
+    csvImportForm: document.getElementById("csv-import-form"),
+    csvImportMessage: document.getElementById("csv-import-message"),
   };
 
   function formatDate(value) {
@@ -236,9 +276,45 @@
 
   function setStatus(online, syncing) {
     state.online = online;
-    els.connectionStatus.innerHTML = `<span class="dot" style="background:${online ? '#4f8a10' : '#b91c1c'}"></span>${online ? 'Online' : 'Offline'}`;
-    els.syncStatus.innerHTML = `<span class="dot" style="background:${syncing ? '#d97706' : '#0f7c7a'}"></span>${syncing ? 'Syncing' : 'Ready'}`;
-    els.pendingCount.textContent = `${state.queue.length} pending`;
+
+    if (els.syncStatusValue) {
+      els.syncStatusValue.textContent = !online ? "Offline" : syncing ? "Syncing…" : "Ready";
+    }
+    if (els.pendingCountValue) {
+      els.pendingCountValue.textContent = String(state.queue.length);
+    }
+
+    if (els.syncBadge) {
+      const pending = state.queue.length;
+      els.syncBadge.textContent = pending > 9 ? "9+" : String(pending);
+      els.syncBadge.classList.toggle("hidden", pending === 0 || syncing);
+      els.syncNowButton.classList.toggle("is-syncing", syncing);
+    }
+
+    if (els.offlineBanner) {
+      if (!online) {
+        els.offlineBanner.textContent = "Offline — changes are saved and will sync automatically";
+        els.offlineBanner.classList.remove("hidden");
+      } else {
+        els.offlineBanner.classList.add("hidden");
+      }
+    }
+
+    renderQueue();
+  }
+
+  function readContactForm() {
+    const form = els.contactForm;
+    return {
+      first_name: form.first_name.value.trim(),
+      last_name: form.last_name.value.trim() || null,
+      company: form.company.value.trim() || null,
+      job_title: form.job_title.value.trim() || null,
+      email: form.email.value.trim() || null,
+      phone: form.phone.value.trim() || null,
+      address: form.address.value.trim() || null,
+      notes: form.notes.value.trim() || null,
+    };
   }
 
   function selectedContact() {
@@ -358,11 +434,20 @@
       const row = document.createElement("div");
       row.className = "tag-row";
       row.innerHTML = `<span style="display:flex;align-items:center;gap:0.6rem"><span class="chip" style="background:${tag.color || '#6c757d'}"></span><strong>${tag.name}</strong></span>`;
+      const actions = document.createElement("div");
+      actions.className = "tag-row-actions";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "text-button";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", () => openTagSheet(tag));
       const remove = document.createElement("button");
       remove.type = "button";
+      remove.className = "text-button danger";
       remove.textContent = "Remove";
       remove.addEventListener("click", () => queueDeleteTag(tag));
-      row.append(remove);
+      actions.append(edit, remove);
+      row.append(actions);
       els.tagList.append(row);
     }
   }
@@ -428,6 +513,13 @@
       node.querySelector("strong").textContent = item.subject || item.type || "Interaction";
       node.querySelector("span").textContent = formatDate(item.occurred_at || item.scheduled_at || item.created_at);
       node.querySelector("p").textContent = interactionSummary(item);
+      if (item.is_completed) {
+        node.classList.add("is-complete");
+      }
+      node.classList.add("tappable");
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.addEventListener("click", () => openInteractionSheet(item));
       els.interactionList.append(node);
     }
   }
@@ -452,6 +544,10 @@
       node.querySelector("strong").textContent = item.subject || item.type || "Reminder";
       node.querySelector("span").textContent = deltaHours <= 24 ? `${Math.max(1, deltaHours)}h away` : formatDate(item.scheduled_at);
       node.querySelector("p").textContent = item.body || "Scheduled follow-up";
+      node.classList.add("tappable");
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.addEventListener("click", () => openInteractionSheet(item));
       els.upcomingList.append(node);
     }
   }
@@ -472,6 +568,42 @@
       remove.addEventListener("click", () => queueDeleteSetting(setting));
       article.append(remove);
       els.settingsList.append(article);
+    }
+  }
+
+  function describeQueueItem(item) {
+    const verb = { create: "Create", update: "Update", delete: "Delete" }[item.op] || item.op;
+    const noun = { contact: "contact", interaction: "interaction", tag: "tag", setting: "setting", contact_tag: "tag link" }[item.entity_type] || item.entity_type;
+    const payload = item.payload || {};
+    let label = "";
+    if (item.entity_type === "contact") {
+      label = [payload.first_name, payload.last_name].filter(Boolean).join(" ");
+    } else if (item.entity_type === "interaction") {
+      label = payload.subject || payload.type || "";
+    } else if (item.entity_type === "tag") {
+      label = payload.name || "";
+    } else if (item.entity_type === "setting") {
+      label = payload.key || "";
+    }
+    return { title: `${verb} ${noun}`, detail: label || "—" };
+  }
+
+  function renderQueue() {
+    if (!els.queueList) {
+      return;
+    }
+    els.queueList.replaceChildren();
+    if (!state.queue.length) {
+      els.queueList.innerHTML = '<article class="timeline-item"><strong>Nothing pending</strong><p>Everything is synced.</p></article>';
+      return;
+    }
+    for (const item of state.queue.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at))) {
+      const { title, detail } = describeQueueItem(item);
+      const node = els.timelineTemplate.content.firstElementChild.cloneNode(true);
+      node.querySelector("strong").textContent = title;
+      node.querySelector("span").textContent = formatDate(item.created_at);
+      node.querySelector("p").textContent = detail;
+      els.queueList.append(node);
     }
   }
 
@@ -515,6 +647,7 @@
 
   function renderAll() {
     const contact = selectedContact();
+    const hasSelection = state.selectedContactId != null;
     renderHeaderState();
     renderTags();
     renderContacts();
@@ -523,8 +656,16 @@
     renderUpcoming();
     renderSettings();
     renderConflicts();
-    if (!contact) {
-      populateContactForm(null);
+    renderQueue();
+    if (els.emptyDetail && els.detailBody) {
+      els.emptyDetail.classList.toggle("hidden", hasSelection);
+      els.detailBody.classList.toggle("hidden", !hasSelection);
+    }
+    if (els.detailTitleRow) {
+      els.detailTitleRow.classList.toggle("hidden", !hasSelection);
+    }
+    if (els.editorActions) {
+      els.editorActions.classList.toggle("hidden", !contact);
     }
   }
 
@@ -535,7 +676,8 @@
       els.mobileDock.classList.toggle("hidden", !visible);
     }
     if (visible) {
-      showScreen("contacts-panel");
+      const isDesktop = window.matchMedia("(min-width: 900px)").matches;
+      showScreen(isDesktop ? "editor-panel" : "contacts-panel");
     }
   }
 
@@ -556,9 +698,10 @@
 
   async function replaceTempRecord(storeName, clientId, serverRecord) {
     if (!clientId) {
-      return;
+      return null;
     }
     const db = await openDb();
+    let oldId = null;
     await new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
       const store = tx.objectStore(storeName);
@@ -567,6 +710,7 @@
       request.onsuccess = () => {
         const existing = request.result;
         if (existing && String(existing.id) !== String(serverRecord.id)) {
+          oldId = existing.id;
           store.delete(existing.id);
         }
         store.put(serverRecord);
@@ -574,6 +718,21 @@
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error);
     });
+    return oldId;
+  }
+
+  async function reassignContactReferences(oldContactId, newContactId) {
+    const interactions = await getAll("interactions");
+    for (const interaction of interactions) {
+      if (String(interaction.contact_id) === String(oldContactId)) {
+        await putRecord("interactions", { ...interaction, contact_id: newContactId });
+      }
+    }
+    state.interactions = await getAll("interactions");
+    if (String(state.selectedContactId) === String(oldContactId)) {
+      state.selectedContactId = newContactId;
+      await setMeta("selectedContactId", newContactId);
+    }
   }
 
   async function loadLocalState() {
@@ -662,23 +821,21 @@
 
         if (result.results && result.results[0] && result.results[0].status === "applied" && result.results[0].server) {
           const serverRecord = result.results[0].server;
-          if (item.op === "create" && item.entity_type === "contact") {
-            await replaceTempRecord("contacts", item.client_id, serverRecord);
-          }
-          if (item.op === "create" && item.entity_type === "interaction") {
-            await replaceTempRecord("interactions", item.client_id, serverRecord);
-          }
-          if (item.op === "create" && item.entity_type === "tag") {
-            await replaceTempRecord("tags", item.client_id, serverRecord);
-          }
-          if (item.op === "create" && item.entity_type === "setting") {
-            await replaceTempRecord("settings", item.client_id, serverRecord);
-          }
-          if (item.op === "update" && item.entity_type === "contact") {
+          const store = STORE_BY_ENTITY[item.entity_type];
+          if (store) {
+            if (item.op === "create") {
+              const oldId = await replaceTempRecord(store, item.client_id, serverRecord);
+              if (item.entity_type === "contact" && oldId && String(oldId) !== String(serverRecord.id)) {
+                await reassignContactReferences(oldId, serverRecord.id);
+              }
+            } else if (item.op === "update") {
+              await putRecord(store, serverRecord);
+            } else if (item.op === "delete") {
+              await deleteRecord(store, item.entity_id);
+            }
+          } else if (item.entity_type === "contact_tag") {
             await putRecord("contacts", serverRecord);
-          }
-          if (item.op === "delete" && item.entity_type === "contact") {
-            await deleteRecord("contacts", item.entity_id);
+            state.contacts = await getAll("contacts");
           }
         }
 
@@ -690,7 +847,7 @@
       await loadRemoteSnapshot();
       await refreshSyncInfo();
     } catch (error) {
-      setBadge(els.syncStatus, error.status === 401 ? "Sign in required" : error.message);
+      setBadge(els.syncStatusValue, error.status === 401 ? "Sign in required" : error.message);
       if (error.status === 401) {
         await handleSessionLoss();
       }
@@ -740,6 +897,18 @@
     renderAll();
   }
 
+  async function requestBackgroundSync() {
+    if (!("serviceWorker" in navigator) || !("SyncManager" in window)) {
+      return; // not supported in this browser - falls back to the 'online' event
+    }
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.sync.register("crm-sync-queue");
+    } catch {
+      // background sync is a progressive enhancement, safe to ignore
+    }
+  }
+
   async function enqueueChange(item) {
     await putRecord("syncQueue", {
       ...item,
@@ -749,6 +918,8 @@
     renderHeaderState();
     if (navigator.onLine) {
       await syncAll();
+    } else {
+      await requestBackgroundSync();
     }
   }
 
@@ -760,7 +931,7 @@
     }
 
     if (!selected || String(selected.id).startsWith("local-")) {
-      const clientId = selected?.client_id || crypto.randomUUID();
+      const clientId = selected?.client_id || uuid();
       const record = {
         id: selected?.id || `local-${clientId}`,
         client_id: clientId,
@@ -837,8 +1008,7 @@
   }
 
   async function queueToggleContactTag(contact, tag, add) {
-    if (!contact || String(contact.id).startsWith("local-")) {
-      alert("Save the contact before attaching tags.");
+    if (!contact || !tag) {
       return;
     }
     const updated = { ...contact, tags: [...(contact.tags || [])] };
@@ -854,10 +1024,13 @@
     renderAll();
 
     await enqueueChange({
-      transport: "api",
-      method: add ? "POST" : "DELETE",
-      path: `/contacts/${contact.id}/tags/${tag.id}`,
-      body: null,
+      op: add ? "create" : "delete",
+      entity_type: "contact_tag",
+      client_id: uuid(),
+      payload: {
+        contact_client_id: contact.client_id,
+        tag_client_id: tag.client_id,
+      },
     });
   }
 
@@ -904,13 +1077,61 @@
     };
   }
 
-  async function saveInteractionFromForm() {
-    const contact = selectedContact();
-    if (!contact || String(contact.id).startsWith("local-")) {
-      throw new Error("Choose a saved contact before adding an interaction");
+  function populateInteractionForm(item) {
+    const form = els.interactionForm;
+    form.reset();
+    if (!item) {
+      return;
     }
+    form.type.value = item.type || "note";
+    form.subject.value = item.subject || "";
+    form.body.value = item.body || "";
+    form.occurred_at.value = toDatetimeLocal(item.occurred_at);
+    form.scheduled_at.value = toDatetimeLocal(item.scheduled_at);
+    form.is_completed.checked = Boolean(item.is_completed);
+  }
+
+  function openInteractionSheet(item) {
+    state.editingInteractionId = item ? item.id : null;
+    els.sheetTitle.textContent = item ? "Edit interaction" : "New interaction";
+    els.saveInteractionButton.textContent = item ? "Save changes" : "Add interaction";
+    populateInteractionForm(item);
+    openSheet("interaction-sheet");
+  }
+
+  async function saveInteractionFromForm() {
     const payload = readInteractionForm();
-    const clientId = crypto.randomUUID();
+
+    if (state.editingInteractionId) {
+      const existing = state.interactions.find(item => String(item.id) === String(state.editingInteractionId));
+      if (!existing) {
+        throw new Error("That interaction is no longer available");
+      }
+      const updated = {
+        ...existing,
+        ...payload,
+        version: (existing.version || 1) + 1,
+        updated_at: new Date().toISOString(),
+      };
+      await putRecord("interactions", updated);
+      state.interactions = await getAll("interactions");
+      if (!String(existing.id).startsWith("local-")) {
+        await enqueueChange({
+          op: "update",
+          entity_type: "interaction",
+          entity_id: existing.id,
+          base_version: existing.version || 1,
+          payload,
+        });
+      }
+      return;
+    }
+
+    const contact = selectedContact();
+    if (!contact) {
+      throw new Error("Choose a contact before adding an interaction");
+    }
+    const clientId = uuid();
     const record = {
       id: `local-${clientId}`,
       client_id: clientId,
@@ -928,7 +1149,7 @@
       entity_type: "interaction",
       client_id: clientId,
       payload: {
-        contact_id: contact.id,
+        contact_client_id: contact.client_id,
         ...payload,
       },
     });
@@ -942,15 +1163,121 @@
     if (!name) {
       return;
     }
+    const clientId = uuid();
+    const record = {
+      id: `local-${clientId}`,
+      client_id: clientId,
+      name,
+      color,
+      version: 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_deleted: false,
+    };
+    await putRecord("tags", record);
+    state.tags = await getAll("tags");
+    renderAll();
     await enqueueChange({
       op: "create",
       entity_type: "tag",
-      client_id: crypto.randomUUID(),
+      client_id: clientId,
       payload: { name, color },
     });
     form.reset();
     form.color.value = color;
-    await syncAll();
+  }
+
+  function openTagSheet(tag) {
+    state.editingTagId = tag.id;
+    els.tagEditForm.name.value = tag.name || "";
+    els.tagEditForm.color.value = tag.color || "#6c757d";
+    openSheet("tag-edit-sheet");
+  }
+
+  async function saveTagEditFromForm(event) {
+    event.preventDefault();
+    const existing = state.tags.find(tag => String(tag.id) === String(state.editingTagId));
+    if (!existing) {
+      return;
+    }
+    const name = els.tagEditForm.name.value.trim();
+    const color = els.tagEditForm.color.value || "#6c757d";
+    if (!name) {
+      return;
+    }
+    const payload = { name, color };
+    const updated = { ...existing, ...payload, version: (existing.version || 1) + 1, updated_at: new Date().toISOString() };
+    await putRecord("tags", updated);
+    state.tags = await getAll("tags");
+    renderAll();
+    closeSheet();
+    await enqueueChange({
+      op: "update",
+      entity_type: "tag",
+      entity_id: existing.id,
+      base_version: existing.version || 1,
+      payload,
+    });
+  }
+
+  function openSheet(sheetId) {
+    document.querySelectorAll(".sheet").forEach(sheet => sheet.classList.toggle("sheet-active", sheet.id === sheetId));
+    els.sheetOverlay.classList.remove("hidden");
+    requestAnimationFrame(() => els.sheetOverlay.classList.add("open"));
+  }
+
+  function closeSheet() {
+    els.sheetOverlay.classList.remove("open");
+    state.editingInteractionId = null;
+    state.editingTagId = null;
+    setTimeout(() => els.sheetOverlay.classList.add("hidden"), 180);
+  }
+
+  async function handleCsvImport(event) {
+    event.preventDefault();
+    const form = els.csvImportForm;
+    const fileInput = form.querySelector('input[type="file"]');
+    const file = fileInput.files[0];
+    const messageEl = els.csvImportMessage;
+
+    if (!file) {
+      return;
+    }
+    if (!navigator.onLine) {
+      if (messageEl) {
+        messageEl.textContent = "Connect to the internet to import a CSV file.";
+      }
+      return;
+    }
+
+    if (messageEl) {
+      messageEl.textContent = "Importing…";
+    }
+
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      // Raw fetch, not apiFetch: file uploads need a multipart boundary the
+      // browser sets itself, so no Content-Type header can be forced here.
+      const response = await fetch(apiUrl("/data/import/csv"), {
+        method: "POST",
+        credentials: "same-origin",
+        body,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error((payload && payload.error) || `Import failed (${response.status})`);
+      }
+      if (messageEl) {
+        messageEl.textContent = `Imported ${payload.created} contact${payload.created === 1 ? "" : "s"}${payload.skipped ? `, skipped ${payload.skipped}` : ""}.`;
+      }
+      form.reset();
+      await syncAll();
+    } catch (error) {
+      if (messageEl) {
+        messageEl.textContent = error.message;
+      }
+    }
   }
 
   async function saveSettingFromForm(event) {
@@ -964,7 +1291,7 @@
     await putRecord("settings", {
       key,
       value,
-      client_id: crypto.randomUUID(),
+      client_id: uuid(),
       version: 1,
       updated_at: new Date().toISOString(),
     });
@@ -1002,7 +1329,7 @@
   }
 
   async function createNewContact() {
-    state.selectedContactId = `local-${crypto.randomUUID()}`;
+    state.selectedContactId = `local-${uuid()}`;
     await setMeta("selectedContactId", state.selectedContactId);
     els.contactForm.reset();
     populateContactForm(null);
@@ -1086,14 +1413,46 @@
       try {
         await saveInteractionFromForm();
         event.target.reset();
+        closeSheet();
         await syncAll();
       } catch (error) {
         alert(error.message);
       }
     });
 
+    if (els.addInteractionButton) {
+      els.addInteractionButton.addEventListener("click", () => openInteractionSheet(null));
+    }
+
+    if (els.tagEditForm) {
+      els.tagEditForm.addEventListener("submit", saveTagEditFromForm);
+    }
+
+    if (els.sheetOverlay) {
+      els.sheetOverlay.addEventListener("click", event => {
+        if (event.target === els.sheetOverlay || event.target.closest("[data-sheet-close]")) {
+          closeSheet();
+        }
+      });
+      document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && els.sheetOverlay.classList.contains("open")) {
+          closeSheet();
+        }
+      });
+    }
+
     els.syncNowButton.addEventListener("click", async () => {
       await syncAll();
+    });
+
+    document.addEventListener("keydown", event => {
+      const target = event.target;
+      const isTyping = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+      if (event.key === "/" && !isTyping && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        showScreen("contacts-panel");
+        els.contactSearch.focus();
+      }
     });
 
     els.logoutButton.addEventListener("click", async () => {
@@ -1103,6 +1462,19 @@
         // ignore session expiry
       }
       await handleSessionLoss();
+    });
+
+    document.querySelectorAll("[data-auth-mode]").forEach(button => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.authMode;
+        document.querySelectorAll("[data-auth-mode]").forEach(b => {
+          b.classList.toggle("active", b === button);
+          b.setAttribute("aria-selected", String(b === button));
+        });
+        document.querySelectorAll("[data-auth-panel]").forEach(panel => {
+          panel.classList.toggle("active", panel.dataset.authPanel === mode);
+        });
+      });
     });
 
     els.loginForm.addEventListener("submit", event => {
@@ -1117,6 +1489,10 @@
 
     els.tagForm.addEventListener("submit", saveTagFromForm);
     els.settingForm.addEventListener("submit", saveSettingFromForm);
+
+    if (els.csvImportForm) {
+      els.csvImportForm.addEventListener("submit", handleCsvImport);
+    }
 
     if (els.mobileDock) {
       els.mobileDock.addEventListener("click", event => {
@@ -1154,6 +1530,11 @@
     if ("serviceWorker" in navigator) {
       try {
         await navigator.serviceWorker.register("/sw.js");
+        navigator.serviceWorker.addEventListener("message", event => {
+          if (event.data && event.data.type === "crm-run-sync") {
+            syncAll();
+          }
+        });
       } catch {
         // service worker is progressive enhancement
       }
@@ -1168,6 +1549,6 @@
 
   bootstrap().catch(error => {
     console.error(error);
-    setBadge(els.syncStatus, error.message);
+    setBadge(els.syncStatusValue, error.message);
   });
 })();

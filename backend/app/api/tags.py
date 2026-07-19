@@ -47,6 +47,13 @@ def update_tag(tag_id):
         return jsonify({"error": "not found"}), 404
 
     data = request.get_json(silent=True) or {}
+    expected_version = data.get("version")
+    if expected_version is not None and int(expected_version) != tag.version:
+        return jsonify({
+            "error": "conflict",
+            "message": "This tag was modified elsewhere. Refresh and try again.",
+            "server_version": tag.to_dict(),
+        }), 409
     if "name" in data and data["name"].strip():
         tag.name = data["name"].strip()
     if "color" in data:

@@ -19,27 +19,18 @@
   <div class="ambient ambient-b"></div>
 
   <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">CRM</div>
-      <div class="brand-copy">
-        <div class="brand-title">CRM1</div>
-        <div class="brand-subtitle">Offline-first</div>
-      </div>
-    </div>
-    <div class="status-row">
-      <span class="status-pill" id="connection-status"><span class="dot"></span>Online</span>
-      <span class="status-pill" id="sync-status"><span class="dot"></span>Idle</span>
-      <span class="status-pill subtle" id="pending-count">0 pending</span>
-    </div>
     <div class="header-actions">
       <button class="icon-button" id="sync-now-button" type="button" aria-label="Sync now" title="Sync now">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        <span class="sync-badge hidden" id="sync-badge">0</span>
       </button>
       <button class="icon-button" id="logout-button" type="button" aria-label="Logout" title="Logout">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
       </button>
     </div>
   </header>
+
+  <p class="offline-banner hidden" id="offline-banner"></p>
 
   <main class="layout">
     <section class="auth-panel panel" id="auth-panel">
@@ -52,9 +43,13 @@
         </p>
       </div>
 
+      <div class="auth-toggle" role="tablist">
+        <button type="button" class="active" data-auth-mode="login" role="tab" aria-selected="true">Login</button>
+        <button type="button" data-auth-mode="register" role="tab" aria-selected="false">Create account</button>
+      </div>
+
       <div class="auth-grid">
-        <form class="auth-card" id="login-form">
-          <h2>Login</h2>
+        <form class="auth-card auth-mode-panel active" id="login-form" data-auth-panel="login">
           <label>Email<input name="email" type="email" inputmode="email" autocomplete="email" required></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
           <label class="inline-check"><input name="remember" type="checkbox"> Remember me</label>
@@ -62,8 +57,7 @@
           <p class="form-note" id="login-message"></p>
         </form>
 
-        <form class="auth-card accent" id="register-form">
-          <h2>Create account</h2>
+        <form class="auth-card auth-mode-panel" id="register-form" data-auth-panel="register">
           <label>Name<input name="name" type="text" autocomplete="name" required></label>
           <label>Email<input name="email" type="email" inputmode="email" autocomplete="email" required></label>
           <label>Password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
@@ -106,76 +100,56 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
             <span>Contacts</span>
           </button>
-          <div class="header-actions compact">
+          <div class="header-actions compact" id="editor-actions">
             <button class="ghost-button small danger" id="delete-contact-button" type="button">Delete</button>
             <button class="primary-button small" id="save-contact-button" type="button">Save</button>
           </div>
         </div>
 
-        <div class="detail-title-row">
+        <div class="detail-title-row" id="detail-title-row">
           <h2 id="contact-title">Select a contact</h2>
           <span class="muted" id="selected-contact-status">No contact selected</span>
         </div>
 
-        <form class="detail-form" id="contact-form">
-          <div class="grid-2">
-            <label>First name<input name="first_name" type="text" required></label>
-            <label>Last name<input name="last_name" type="text"></label>
-          </div>
-          <div class="grid-2">
-            <label>Company<input name="company" type="text"></label>
-            <label>Job title<input name="job_title" type="text"></label>
-          </div>
-          <div class="grid-2">
-            <label>Email<input name="email" type="email" inputmode="email"></label>
-            <label>Phone<input name="phone" type="tel" inputmode="tel"></label>
-          </div>
-          <label>Address<textarea name="address" rows="2"></textarea></label>
-          <label>Notes<textarea name="notes" rows="5" placeholder="Background, preferences, next steps..."></textarea></label>
-        </form>
+        <div class="empty-detail hidden" id="empty-detail">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <strong>Pick a contact from the list</strong>
+          <span>or create a new one to get started</span>
+        </div>
 
-        <section class="subpanel">
-          <div class="subpanel-header">
-            <h3>Tags</h3>
-          </div>
-          <div class="chip-row wrap" id="selected-contact-tags"></div>
-        </section>
-
-        <section class="subpanel">
-          <div class="subpanel-header">
-            <h3>Interactions</h3>
-            <span class="muted">History and reminders</span>
-          </div>
-          <div class="timeline" id="interaction-list"></div>
-        </section>
-
-        <section class="subpanel">
-          <div class="subpanel-header">
-            <h3>New interaction</h3>
-          </div>
-          <form class="detail-form compact-form" id="interaction-form">
+        <div class="detail-body" id="detail-body">
+          <form class="detail-form" id="contact-form">
             <div class="grid-2">
-              <label>Type
-                <select name="type">
-                  <option value="note">Note</option>
-                  <option value="call">Call</option>
-                  <option value="email">Email</option>
-                  <option value="meeting">Meeting</option>
-                  <option value="task">Task</option>
-                  <option value="other">Other</option>
-                </select>
-              </label>
-              <label>Subject<input name="subject" type="text"></label>
+              <label>First name<input name="first_name" type="text" required></label>
+              <label>Last name<input name="last_name" type="text"></label>
             </div>
-            <label>Body<textarea name="body" rows="3"></textarea></label>
             <div class="grid-2">
-              <label>Occurred at<input name="occurred_at" type="datetime-local"></label>
-              <label>Scheduled at<input name="scheduled_at" type="datetime-local"></label>
+              <label>Company<input name="company" type="text"></label>
+              <label>Job title<input name="job_title" type="text"></label>
             </div>
-            <label class="inline-check"><input name="is_completed" type="checkbox"> Mark as completed</label>
-            <button class="primary-button" id="save-interaction-button" type="submit">Queue interaction</button>
+            <div class="grid-2">
+              <label>Email<input name="email" type="email" inputmode="email"></label>
+              <label>Phone<input name="phone" type="tel" inputmode="tel"></label>
+            </div>
+            <label>Address<textarea name="address" rows="2"></textarea></label>
+            <label>Notes<textarea name="notes" rows="5" placeholder="Background, preferences, next steps..."></textarea></label>
           </form>
-        </section>
+
+          <section class="subpanel">
+            <div class="subpanel-header">
+              <h3>Tags</h3>
+            </div>
+            <div class="chip-row wrap" id="selected-contact-tags"></div>
+          </section>
+
+          <section class="subpanel">
+            <div class="subpanel-header">
+              <h3>Interactions</h3>
+              <button class="text-button accent" id="add-interaction-button" type="button">+ Add</button>
+            </div>
+            <div class="timeline" id="interaction-list"></div>
+          </section>
+        </div>
       </section>
 
       <!-- SCREEN 3: Reminders -->
@@ -189,12 +163,12 @@
         <div class="timeline" id="upcoming-list"></div>
       </section>
 
-      <!-- SCREEN 4: Sync, tags, settings, data -->
-      <section class="screen" id="sync-panel" data-screen-title="More">
+      <!-- SCREEN 4: Settings - sync status, queue, conflicts, tags, data -->
+      <section class="screen" id="sync-panel" data-screen-title="Settings">
         <div class="screen-header">
           <div>
             <p class="eyebrow">Workspace</p>
-            <h2>More</h2>
+            <h2>Settings</h2>
           </div>
         </div>
 
@@ -203,10 +177,20 @@
             <h3>Sync</h3>
           </div>
           <div class="stacked-metrics">
+            <div><span>Status</span><strong id="sync-status-value">Ready</strong></div>
             <div><span>Last sync</span><strong id="last-sync-at">Never</strong></div>
+            <div><span>Pending changes</span><strong id="pending-count-value">0</strong></div>
             <div><span>Conflicts</span><strong id="pending-conflicts">0</strong></div>
-            <div><span>Device</span><strong id="device-label">CRM1 browser</strong></div>
+            <div><span>This device</span><strong id="device-label">CRM1 browser</strong></div>
           </div>
+        </section>
+
+        <section class="subpanel" id="queue-panel">
+          <div class="subpanel-header">
+            <h3>Pending changes</h3>
+            <span class="muted">Waiting to sync</span>
+          </div>
+          <div class="timeline narrow" id="queue-list"></div>
         </section>
 
         <section class="subpanel" id="conflicts-panel">
@@ -214,6 +198,24 @@
             <h3>Conflicts</h3>
           </div>
           <div class="timeline narrow" id="conflict-list"></div>
+        </section>
+
+        <section class="subpanel" id="data-panel">
+          <div class="subpanel-header">
+            <h3>Data</h3>
+          </div>
+          <div class="stacked-links">
+            <a href="/api/data/export/json" target="_blank" rel="noreferrer">Export JSON</a>
+            <a href="/api/data/export/csv" target="_blank" rel="noreferrer">Export CSV</a>
+            <a href="/api/data/backup" target="_blank" rel="noreferrer">Create backup</a>
+          </div>
+          <form class="detail-form compact-form" id="csv-import-form">
+            <label>Import contacts from CSV
+              <input type="file" name="file" accept=".csv,text/csv" required>
+            </label>
+            <button class="primary-button small" type="submit">Upload CSV</button>
+            <p class="form-note" id="csv-import-message"></p>
+          </form>
         </section>
 
         <section class="subpanel" id="tags-panel">
@@ -231,7 +233,7 @@
 
         <section class="subpanel" id="settings-panel">
           <div class="subpanel-header">
-            <h3>Settings</h3>
+            <h3>General settings</h3>
             <span class="muted">Browser-synced values</span>
           </div>
           <form class="detail-form compact-form" id="setting-form">
@@ -243,21 +245,61 @@
           </form>
           <div class="settings-list" id="settings-list"></div>
         </section>
-
-        <section class="subpanel" id="data-panel">
-          <div class="subpanel-header">
-            <h3>Data</h3>
-          </div>
-          <div class="stacked-links">
-            <a href="/api/data/export/json" target="_blank" rel="noreferrer">Export JSON</a>
-            <a href="/api/data/export/csv" target="_blank" rel="noreferrer">Export CSV</a>
-            <a href="/api/data/backup" target="_blank" rel="noreferrer">Create backup</a>
-          </div>
-        </section>
       </section>
 
     </section>
   </main>
+
+  <div class="sheet-overlay hidden" id="sheet-overlay">
+    <div class="sheet sheet-active" id="interaction-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle" data-sheet-close></div>
+      <div class="sheet-header">
+        <h3 id="sheet-title">New interaction</h3>
+        <button class="icon-button" type="button" data-sheet-close aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form class="detail-form compact-form" id="interaction-form">
+        <div class="grid-2">
+          <label>Type
+            <select name="type">
+              <option value="note">Note</option>
+              <option value="call">Call</option>
+              <option value="email">Email</option>
+              <option value="meeting">Meeting</option>
+              <option value="task">Task</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Subject<input name="subject" type="text"></label>
+        </div>
+        <label>Body<textarea name="body" rows="3"></textarea></label>
+        <div class="grid-2">
+          <label>Occurred at<input name="occurred_at" type="datetime-local"></label>
+          <label>Scheduled at<input name="scheduled_at" type="datetime-local"></label>
+        </div>
+        <label class="inline-check"><input name="is_completed" type="checkbox"> Mark as completed</label>
+        <button class="primary-button" id="save-interaction-button" type="submit">Add interaction</button>
+      </form>
+    </div>
+
+    <div class="sheet" id="tag-edit-sheet" role="dialog" aria-modal="true">
+      <div class="sheet-handle" data-sheet-close></div>
+      <div class="sheet-header">
+        <h3>Edit tag</h3>
+        <button class="icon-button" type="button" data-sheet-close aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <form class="detail-form compact-form" id="tag-edit-form">
+        <div class="grid-2">
+          <label>Name<input name="name" type="text" required></label>
+          <label>Color<input name="color" type="color"></label>
+        </div>
+        <button class="primary-button" type="submit">Save tag</button>
+      </form>
+    </div>
+  </div>
 
   <template id="contact-item-template">
     <button class="contact-item" type="button">
@@ -281,6 +323,7 @@
   </template>
 
   <nav class="mobile-dock hidden" aria-label="Primary">
+    <div class="sidebar-brand" aria-hidden="true">CRM1</div>
     <button type="button" data-screen="contacts-panel" class="active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       <span>Contacts</span>
@@ -295,7 +338,7 @@
     </button>
     <button type="button" data-screen="sync-panel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
-      <span>More</span>
+      <span>Settings</span>
     </button>
   </nav>
 

@@ -1,7 +1,7 @@
 import os
-from pathlib import Path
 
 from flask import Flask, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import config_by_name
 from app.extensions import db, login_manager, migrate, cors, limiter
@@ -12,11 +12,12 @@ def create_app(env=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_by_name.get(env, config_by_name["production"]))
 
-    database_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
-    if database_uri.startswith("sqlite:///") and database_uri != "sqlite:///:memory:":
-        sqlite_path = Path(database_uri.replace("sqlite:///", "", 1))
-        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        sqlite_path.touch(exist_ok=True)
+    # Trust X-Forwarded-* headers from the reverse proxy in front of us
+    # (Cloudflare Tunnel, Tailscale, nginx) so secure cookies and url_for
+    # behave correctly even though the proxy talks to gunicorn over plain HTTP.
+    hops = app.config.get("PROXY_HOP_COUNT", 1)
+    if hops:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -39,6 +40,9 @@ def create_app(env=None):
 
     from app import frontend
     app.register_blueprint(frontend.bp)
+
+    from app.scheduler import init_scheduled_backups
+    init_scheduled_backups(app)
 
     @app.get("/api/health")
     def health():

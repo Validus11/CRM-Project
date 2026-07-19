@@ -1,4 +1,4 @@
-const CACHE_NAME = "crm1-shell-v1";
+const CACHE_NAME = "crm1-shell-v2";
 const SHELL_ASSETS = [
   "/",
   "/manifest.webmanifest",
@@ -47,6 +47,22 @@ self.addEventListener("fetch", event => {
         caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
         return response;
       }))
+    );
+  }
+});
+
+// Background Sync (progressive enhancement): when the browser regains
+// connectivity it wakes the service worker even if no tab is open. We
+// can't reach IndexedDB-backed app state from here without duplicating
+// the sync engine, so we ask any open tab to flush its queue; if the
+// app isn't open the browser will simply retry this event later, and
+// the queue flushes for real the next time the app is opened anyway.
+self.addEventListener("sync", event => {
+  if (event.tag === "crm-sync-queue") {
+    event.waitUntil(
+      self.clients.matchAll({ type: "window" }).then(clients => {
+        clients.forEach(client => client.postMessage({ type: "crm-run-sync" }));
+      })
     );
   }
 });

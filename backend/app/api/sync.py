@@ -4,14 +4,41 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 from app.extensions import db
-from app.models import ConflictLog, SyncCursor
+from app.models import ConflictLog, SyncCursor, Contact, Tag
 from app.utils.audit import record_audit
 from app.utils.sync_registry import ENTITY_REGISTRY, apply_payload_to_instance
 
 bp = Blueprint("sync", __name__, url_prefix="/api/sync")
 
-VALID_ENTITY_TYPES = set(ENTITY_REGISTRY.keys())
+VALID_ENTITY_TYPES = set(ENTITY_REGISTRY.keys()) | {"contact_tag"}
 VALID_OPS = {"create", "update", "delete"}
+
+# Lets a payload reference another record that may itself still be sitting
+# in the offline queue (e.g. an interaction created for a contact that
+# hasn't synced yet). The client sends "<field>_client_id" instead of a
+# real numeric id; we resolve it to the real id here, as long as that
+# referenced record has already been processed (same request or earlier).
+REF_RESOLVERS = {
+    "contact_client_id": ("contact_id", Contact),
+    "tag_client_id": ("tag_id", Tag),
+}
+
+
+def _resolve_client_refs(payload):
+    """Mutates a copy of payload, replacing any *_client_id keys with the
+    real numeric id of the referenced record. Returns (payload, error) -
+    error is a message string if a referenced record can't be found yet
+    (e.g. its own create is still queued behind this one client-side)."""
+    resolved = dict(payload)
+    for ref_key, (target_field, model) in REF_RESOLVERS.items():
+        if ref_key not in resolved:
+            continue
+        client_id = resolved.pop(ref_key)
+        record = model.query.filter_by(client_id=client_id, user_id=current_user.id, is_deleted=False).first()
+        if not record:
+            return None, f"referenced {model.__tablename__[:-1]} (client_id={client_id}) hasn't synced yet"
+        resolved[target_field] = record.id
+    return resolved, None
 
 
 def _get_cursor():
@@ -24,6 +51,48 @@ def _get_cursor():
 
 def _serialize(entity_type, instance):
     return instance.to_dict()
+
+
+def _process_contact_tag(item):
+    """Attach/detach a tag to a contact. Not a normal CRUD entity - it's a
+    toggle on the many-to-many relationship - so it's handled separately
+    from the generic ENTITY_REGISTRY dispatch below. Supports the same
+    *_client_id resolution as everything else, so tagging a contact you
+    just created offline (with a tag you also just created offline) works
+    in one sync pass once both have been applied."""
+    op = item.get("op")
+    client_id = item.get("client_id")
+    payload = item.get("payload") or {}
+
+    if op not in ("create", "delete"):
+        return {"client_id": client_id, "status": "error", "message": "contact_tag only supports create/delete"}
+
+    resolved, error = _resolve_client_refs(payload)
+    if error:
+        return {"client_id": client_id, "status": "error", "message": error}
+
+    contact_id = resolved.get("contact_id") or item.get("entity_id")
+    tag_id = resolved.get("tag_id")
+    if not contact_id or not tag_id:
+        return {"client_id": client_id, "status": "error", "message": "contact_tag requires contact and tag references"}
+
+    contact = Contact.query.filter_by(id=contact_id, user_id=current_user.id, is_deleted=False).first()
+    tag = Tag.query.filter_by(id=tag_id, user_id=current_user.id, is_deleted=False).first()
+    if not contact or not tag:
+        return {"client_id": client_id, "status": "error", "message": "contact or tag not found"}
+
+    if op == "create":
+        if tag not in contact.tags:
+            contact.tags.append(tag)
+            contact.touch(bump_version=False)
+            record_audit(current_user.id, "create", "contact_tag", contact.id, detail={"tag_id": tag.id})
+    else:
+        if tag in contact.tags:
+            contact.tags.remove(tag)
+            contact.touch(bump_version=False)
+            record_audit(current_user.id, "delete", "contact_tag", contact.id, detail={"tag_id": tag.id})
+
+    return {"client_id": client_id, "status": "applied", "server": contact.to_dict()}
 
 
 def _process_item(item):
@@ -40,6 +109,9 @@ def _process_item(item):
     if op not in VALID_OPS or entity_type not in VALID_ENTITY_TYPES:
         return {"client_id": client_id, "status": "error", "message": "invalid op or entity_type"}
 
+    if entity_type == "contact_tag":
+        return _process_contact_tag(item)
+
     model = ENTITY_REGISTRY[entity_type]["model"]
 
     # --- CREATE ---
@@ -52,6 +124,10 @@ def _process_item(item):
             # Already synced previously (e.g. retried after a dropped
             # response) - idempotent no-op, just return current state.
             return {"client_id": client_id, "status": "applied", "server": _serialize(entity_type, existing)}
+
+        payload, error = _resolve_client_refs(payload)
+        if error:
+            return {"client_id": client_id, "status": "error", "message": error}
 
         instance = model(user_id=current_user.id, client_id=client_id)
         apply_payload_to_instance(instance, payload, entity_type)
@@ -102,6 +178,9 @@ def _process_item(item):
         }
 
     if op == "update":
+        payload, error = _resolve_client_refs(payload)
+        if error:
+            return {"client_id": client_id, "status": "error", "message": error}
         apply_payload_to_instance(instance, payload, entity_type)
         instance.touch()
         record_audit(current_user.id, "update", entity_type, instance.id, detail={"client_id": client_id})

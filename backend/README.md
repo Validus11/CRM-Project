@@ -38,7 +38,7 @@ pip install -r requirements.txt
 cp .env.example .env   # edit SECRET_KEY etc.
 export FLASK_ENV=development
 
-flask --app run init-db     # optional; python run.py also initializes tables on first launch
+flask --app run init-db     # or: flask --app run db upgrade, once migrations exist
 flask --app run run
 ```
 
@@ -105,10 +105,59 @@ returns, POSTs it as an ordered array to `/api/sync`:
   since that time (omit `since` for the initial full sync) so the client
   can refresh its local cache after pushing.
 
+## Automatic backups
+
+A background job (APScheduler) snapshots the SQLite database on an
+interval and prunes old auto-backups, satisfying the "automatic
+scheduled backups" requirement. One backup is also taken shortly after
+every app startup. Configure via env vars:
+
+| Var | Default | Meaning |
+|---|---|---|
+| `AUTO_BACKUP_ENABLED` | `true` | set `false` to disable |
+| `BACKUP_INTERVAL_HOURS` | `24` | how often to snapshot |
+| `BACKUP_RETENTION` | `14` | how many auto-backups to keep |
+| `BACKUP_DIR` | `instance/backups` | where snapshots are written |
+
+Manual backup/restore is still available at `POST /api/data/backup` and
+`POST /api/data/restore` for on-demand use (e.g. before a risky import).
+
+## Reverse proxies (Cloudflare Tunnel / Tailscale)
+
+The app applies `ProxyFix` so it trusts `X-Forwarded-Proto`/`-For`/`-Host`
+from one hop in front of it by default. Set `PROXY_HOP_COUNT` if you're
+chaining more than one proxy. This is what lets secure cookies and
+`url_for` work correctly when Cloudflare Tunnel or a Tailscale-fronted
+nginx terminates TLS in front of the plain-HTTP gunicorn process.
+
+## Frontend
+
+`app/templates/index.html` + `app/static/{css,js}` is a mobile-first PWA
+served by this same Flask app (see `app/frontend.py`): bottom tab
+navigation, one screen at a time on phones, a 3-column layout above
+900px, IndexedDB local cache, a persistent sync queue, and Background
+Sync API registration as a progressive enhancement. Everything under
+`SPEC-SHEET.md`'s "Offline Behaviour" and "Synchronisation Queue"
+sections — including editing tags and interactions offline, not just
+creating them — is wired end to end.
+
 ## Not yet built
 
 - Flask-Migrate migration scripts (currently `flask db init` hasn't been
   run — schema is created via `init-db` / `db.create_all()` for now)
-- Background scheduled backups
-- PostgreSQL-specific tuning (works today via `DATABASE_URL`, untested)
+- PostgreSQL-specific tuning (works today via `DATABASE_URL` +
+  `pip install psycopg2-binary`, untested at scale)
 - Multi-user / role permissions beyond owner-vs-member on backup/restore
+- The frontend doesn't yet use Bootstrap 5, despite it being listed under
+  "Technology Preferences" in the spec sheet — see note below.
+
+## A deliberate spec deviation worth flagging
+
+The spec sheet lists Bootstrap 5 under frontend technology preferences.
+The current frontend uses hand-written mobile-first CSS instead, because
+a heavier utility framework fights against the "hyper mobile friendly,
+nothing unnecessary" goal — Bootstrap's default components need a lot of
+overriding to feel native on a phone (bottom sheets, tab bars, safe-area
+insets aren't first-class Bootstrap concepts). If strict Bootstrap 5
+compliance matters more than the current mobile polish, this is worth a
+follow-up conversation before more frontend work is built on top of it.
